@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gossip Cluster</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6ea;
+    --alive: #1f9d55; --suspect: #d69e2e; --dead: #d64545; --left: #8a94a6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1218; --panel: #171b23; --text: #e6e9ef; --muted: #8b93a3; --border: #2a303b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 20px 24px 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  .sub { color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; padding: 16px 24px 32px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } header { padding: 16px; } }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+  h2 { font-size: 14px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 6px 8px; text-align: center; white-space: nowrap; }
+  th { font-weight: 600; color: var(--muted); font-size: 12px; }
+  td.obs { text-align: left; font-weight: 600; }
+  .cell { display: inline-block; min-width: 72px; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #fff; }
+  .alive { background: var(--alive); } .suspect { background: var(--suspect); }
+  .dead { background: var(--dead); } .left { background: var(--left); }
+  .unknown { background: transparent; color: var(--muted); border: 1px dashed var(--border); }
+  .hb { display: block; font-size: 10px; color: rgba(255,255,255,.85); font-weight: 400; }
+  .down { color: var(--dead); font-weight: 400; font-size: 12px; }
+  button { font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  #events { list-style: none; margin: 0; padding: 0; max-height: 520px; overflow-y: auto; }
+  #events li { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .tag { display: inline-block; min-width: 62px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .t-dead { color: var(--dead); } .t-suspect { color: var(--suspect); } .t-join, .t-alive, .t-rejoin { color: var(--alive); } .t-left { color: var(--left); }
+  .legend { margin-top: 12px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gossip Cluster</h1>
+  <div class="sub">Each row is one node's own view of the cluster. Rows agree once gossip has converged. <span id="me"></span></div>
+</header>
+<main>
+  <section>
+    <h2>Membership matrix (observer → member)</h2>
+    <div class="scroll"><table id="matrix"></table></div>
+    <div class="legend">Crash a node and watch its column go alive → SUSPECT → DEAD in every row. Heartbeat counter shown under each cell.</div>
+  </section>
+  <section>
+    <h2>Events seen by this node</h2>
+    <ul id="events"></ul>
+  </section>
+</main>
+<script>
+  const proto = location.protocol, hostName = location.hostname;
+  const urlFor = (httpPort) => `${proto}//${hostName}:${httpPort}`;
+  const known = new Map(); // id -> httpPort (remembered even after the node dies)
+
+  async function getJSON(url) {
+    const r = await fetch(url, { signal: AbortSignal.timeout(800) });
+    return r.json();
+  }
+
+  async function refresh() {
+    let self;
+    try { self = await getJSON('/members'); } catch { return; }
+    document.getElementById('me').textContent = `Connected to ${self.id}. Reporter: ${self.reporter}.`;
+    for (const m of self.members) if (m.httpPort) known.set(m.id, m.httpPort);
+    const ids = [...known.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const views = await Promise.all(ids.map(async (id) => {
+      try { return [id, await getJSON(urlFor(known.get(id)) + '/members')]; } catch { return [id, null]; }
+    }));
+
+    let html = '<tr><th></th>' + ids.map((id) => `<th>${id}</th>`).join('') + '<th></th></tr>';
+    for (const [obs, v] of views) {
+      html += `<tr><td class="obs">${obs}${v ? '' : ' <span class="down">unreachable</span>'}</td>`;
+      for (const id of ids) {
+        const m = v?.members.find((x) => x.id === id);
+        html += m
+          ? `<td><span class="cell ${m.status}">${m.status}<span class="hb">hb ${m.heartbeat}</span></span></td>`
+          : `<td><span class="cell unknown">${v ? 'unknown' : ''}</span></td>`;
+      }
+      html += `<td>${v ? `<button onclick="admin('${obs}','crash')">crash</button> <button onclick="admin('${obs}','leave')">leave</button>` : ''}</td></tr>`;
+    }
+    document.getElementById('matrix').innerHTML = html;
+  }
+
+  async function admin(id, action) {
+    try { await fetch(urlFor(known.get(id)) + '/admin/' + action, { method: 'POST' }); } catch {}
+  }
+
+  const list = document.getElementById('events');
+  const es = new EventSource('/events');
+  es.addEventListener('change', (msg) => {
+    const e = JSON.parse(msg.data);
+    const li = document.createElement('li');
+    const how = e.source === 'local' ? 'detected locally' : `via ${e.via}`;
+    li.innerHTML = `<span class="tag t-${e.type}">${e.type}</span> <b>${e.id}</b> <span class="sub">${how} · ${new Date(e.at).toLocaleTimeString()}</span>`;
+    list.prepend(li);
+  });
+
+  refresh();
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>

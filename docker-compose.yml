@@ -1,0 +1,39 @@
+# 5-node gossip cluster, each node in its own container.
+#
+#   docker compose up --build
+#   open http://localhost:8001            # dashboard
+#   docker compose kill node-3            # crash      -> DEAD
+#   docker compose start node-3           # restart    -> REJOIN
+#   docker compose pause node-4           # freeze     -> DEAD
+#   docker compose unpause node-4         # resume     -> refute -> REJOIN
+#   docker compose stop node-5            # SIGTERM    -> LEFT
+#
+x-node: &node
+  build: .
+  restart: "no"
+  environment: &env
+    SEEDS: node-1:7001,node-2:7002
+    LOG_LEVEL: info
+    # WEBHOOK_URL: https://hooks.slack.com/services/XXX/YYY/ZZZ
+
+services:
+  node-1:
+    <<: *node
+    environment: { <<: *env, NODE_ID: node-1, ADVERTISE_HOST: node-1, GOSSIP_PORT: "7001", HTTP_PORT: "8001" }
+    ports: ["8001:8001"]
+  node-2:
+    <<: *node
+    environment: { <<: *env, NODE_ID: node-2, ADVERTISE_HOST: node-2, GOSSIP_PORT: "7002", HTTP_PORT: "8002" }
+    ports: ["8002:8002"]
+  node-3:
+    <<: *node
+    environment: { <<: *env, NODE_ID: node-3, ADVERTISE_HOST: node-3, GOSSIP_PORT: "7003", HTTP_PORT: "8003" }
+    ports: ["8003:8003"]
+  node-4:
+    <<: *node
+    environment: { <<: *env, NODE_ID: node-4, ADVERTISE_HOST: node-4, GOSSIP_PORT: "7004", HTTP_PORT: "8004" }
+    ports: ["8004:8004"]
+  node-5:
+    <<: *node
+    environment: { <<: *env, NODE_ID: node-5, ADVERTISE_HOST: node-5, GOSSIP_PORT: "7005", HTTP_PORT: "8005" }
+    ports: ["8005:8005"]

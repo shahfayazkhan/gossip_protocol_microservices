@@ -1,0 +1,26 @@
+{
+  "name": "gossip-protocol-cluster",
+  "version": "1.0.0",
+  "description": "Node.js gossip protocol (SWIM-style) cluster membership with failure detection and dead-node notifications. Zero dependencies.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "gossip-node": "bin/node.js"
+  },
+  "scripts": {
+    "start": "node bin/node.js",
+    "cluster": "node scripts/cluster.js 5",
+    "demo": "node scripts/demo.js",
+    "example:basic": "node examples/basic-usage.js",
+    "example:webhook": "node examples/webhook-receiver.js",
+    "test": "node --test --test-concurrency=1",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": ["gossip", "swim", "failure-detection", "membership", "distributed-systems", "cluster"],
+  "author": "Shahfayaz Khan",
+  "license": "MIT"
+}
